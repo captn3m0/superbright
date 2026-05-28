@@ -1,53 +1,140 @@
+# superbright
 
-<p align="center">
-  <img width="256" height="256" alt="BrightIntosh-iOS-Default-256x256@1x" src="https://github.com/user-attachments/assets/02136d9a-11e1-49f8-bd16-8c23fe02acfc" />
-</p>
-<p align="center">
-  <a href="https://www.brightintosh.de">View our website</a><br/><br/>
-  <a href="https://apps.apple.com/app/apple-store/id6452471855?pt=126521145&ct=github&mt=8" style="display: inline-block;">
-    <img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-app-store/black/en-us?releaseDate=1693267200" alt="Download on the App Store" style="width: 246px; height: 82px; vertical-align: middle; object-fit: contain;" />
-  </a>
-</p>
+A single-file CLI service that unlocks the increased brightness (1000 nits) of
+XDR displays on supported Macs.
 
-# BrightIntosh
-
-BrightIntosh enables your MacBook Pro M1 (or newer) to use the increased brightness (1000 nits) of its XDR display at any time. By default, this is only possible when displaying HDR content.
-BrightIntosh can shift your brightness range to higher values.
-The brightness slider in the app controls how much you shift this range.
-You can still use your brightness keys to control the brightness.
-It comes with a handy menu bar item so you can toggle the increased brightness quickly and easily.
+This is a minimal fork of [BrightIntosh](https://github.com/niklasr22/BrightIntosh) by
+Niklas Rousset (<https://www.brightintosh.de>) that strips out the GUI and
+configuration options.
 
 > [!IMPORTANT]
-> This tool should not harm your display as it doesn't use any low-level API calls and your OS is in full control over the display, but there is no warranty.
-
-## Preview
-
-<p align="center">
-  <img src="https://github.com/niklasr22/BrightIntosh/assets/75939868/b8774d5c-7bfa-4661-86d0-e0e58fefbdf1">
-</p>
-
-Maximum brightness with BrightIntosh on the left half of the picture, default maximum brightness on the right half.
+> This tool should not harm your display as it doesn't use any low-level API
+> calls and your OS is in full control over the display, but there is no
+> warranty.
 
 ## Compatible devices
 
-- MacBook Pro M5 from 2025 / 2026 (Model identifier: Mac17,2, Mac17,6, Mac17,7, Mac17,8, Mac17,9) 
-- MacBook Pro M4 from 2024 (Model Identifiers: Mac16,1, Mac16,5, Mac16,6, Mac16,7, Mac16,8)
-- MacBook Pro M3 from 2023 (Model Identifiers: Mac15,3, Mac15,6, Mac15,7, Mac15,8, Mac15,9, Mac15,10, Mac15,11)
-- MacBook Pro M2 14" / 16" from 2023 (Model Identifiers: Mac14,5, Mac14,6, Mac14,9, Mac14,10)
-- MacBook Pro M1 14" / 16" from 2021 (Model Identifiers: MacBookPro18,1, MacBookPro18,2, MacBookPro18,3, MacBookPro18,4)
-- Studio Display XDR (experimental)
+(Same as BrightIntosh)
+
+- MacBook Pro M5 (Mac17,2 / Mac17,6 / Mac17,7 / Mac17,8 / Mac17,9)
+- MacBook Pro M4 (Mac16,1 / Mac16,5 / Mac16,6 / Mac16,7 / Mac16,8)
+- MacBook Pro M3 (Mac15,3 / Mac15,6 / Mac15,7 / Mac15,8 / Mac15,9 / Mac15,10 / Mac15,11)
+- MacBook Pro M2 14"/16" (Mac14,5 / Mac14,6 / Mac14,9 / Mac14,10)
+- MacBook Pro M1 14"/16" (MacBookPro18,1 / MacBookPro18,2 / MacBookPro18,3 / MacBookPro18,4)
 - Pro Display XDR
+- Studio Display XDR (experimental)
 
-## Installation
+## Build
 
-- [Mac App Store](https://apple.co/3r0Ghqm)
-- 👩🏼‍💻 Build it yourself 👨🏽‍💻
+```sh
+make
+```
 
-## Contributing
+Produces a `./superbright` binary. Requires Xcode command-line tools (`swiftc`).
 
-If you have any ideas, enhancements or proposals, feel free to open an issue!
+## Install
 
-## Known incompatibilities and problems:
+```sh
+sudo make install            # installs to /usr/local/bin/superbright
+sudo make uninstall          # removes it
+```
 
-- BrightIntosh and [f.lux](https://justgetflux.com) will likely not work simultaneously
-- HDR Videos will clip when BrightIntosh is active
+Override the install prefix with `PREFIX=...`.
+
+## Usage
+
+```sh
+superbright                  # foreground, brightness boosted until Ctrl-C
+superbright -d               # detach into background and exit
+superbright --help
+```
+
+The CLI has no toggle command. To turn brightness off, kill the process
+(`Ctrl-C`, `kill <pid>`, `launchctl bootout`, `brew services stop`, …). Gamma
+is restored automatically on exit.
+
+## Run as a service
+
+### Homebrew
+
+(WIP)
+
+If installed via a formula that registers a service, use:
+
+```sh
+brew services start superbright
+brew services stop superbright
+```
+
+### LaunchAgent
+
+(Untested)
+
+Drop the following plist at `~/Library/LaunchAgents/superbright.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>superbright</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/superbright</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/superbright.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/superbright.log</string>
+</dict>
+</plist>
+```
+
+Load and unload it with:
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/superbright.plist
+launchctl bootout   gui/$(id -u)/superbright
+```
+
+## How it works
+
+Two things happen on supported displays:
+
+1. A 1×1, transparent, always-on-top Metal window is opened with
+   `wantsExtendedDynamicRangeContent = true` to engage the display's HDR mode.
+2. Once HDR is engaged, the display's gamma table is captured as a baseline and
+   re-uploaded with each value scaled by a per-display factor derived from
+   `NSScreen.maximumExtendedDynamicRangeColorComponentValue`.
+
+Both effects are tied to the running process. macOS restores the original gamma
+when the process exits, and the overlay window vanishes with it.
+
+## Known issues
+
+(Same as Brightintosh)
+
+- Conflicts with apps that also drive the gamma table (f.lux, Lunar, Vivid,
+  MonitorControl, BetterDisplay, Iris, …).
+- HDR videos will clip while superbright is active.
+
+## Credits
+
+If you want a polished GUI app with a menu bar item, hotkeys, settings, and an
+App Store build, use the upstream project:
+
+- Source: <https://github.com/niklasr22/BrightIntosh>
+- Website: <https://www.brightintosh.de>
+
+If you'd like to support this work, please [purchase BrightIntosh](https://apple.co/3r0Ghqm) or 
+[sponsor Niklas](https://github.com/sponsors/niklasr22).
+
+## License
+
+GNU GPL 3. See `LICENSE` file for details.

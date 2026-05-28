@@ -1,7 +1,7 @@
-PREFIX ?= /usr/local
+PREFIX ?= ~/.local
 
 superbright: superbright.swift
-	swiftc -O -parse-as-library -o $@ $<
+	swiftc -cross-module-optimization -O -parse-as-library -o $@ $<
 
 install: superbright
 	install -m 0755 superbright $(PREFIX)/bin/superbright

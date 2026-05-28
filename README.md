@@ -35,8 +35,8 @@ Produces a `./superbright` binary. Requires Xcode command-line tools (`swiftc`).
 ## Install
 
 ```sh
-sudo make install            # installs to /usr/local/bin/superbright
-sudo make uninstall          # removes it
+make install            # installs to ~/.local/bin/superbright
+make uninstall          # removes it
 ```
 
 Override the install prefix with `PREFIX=...`.

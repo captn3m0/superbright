@@ -419,13 +419,16 @@ final class BrightnessService {
 // MARK: - Daemonize
 
 func daemonize() -> Never {
-    let executable = CommandLine.arguments[0]
+    guard let executableURL = Bundle.main.executableURL else {
+        FileHandle.standardError.write(Data("superbright: failed to resolve executable path\n".utf8))
+        exit(1)
+    }
     let forwarded = CommandLine.arguments
         .dropFirst()
         .filter { $0 != "-d" && $0 != "--daemon" }
 
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: executable)
+    process.executableURL = executableURL
     process.arguments = Array(forwarded)
     process.standardInput = FileHandle.nullDevice
     process.standardOutput = FileHandle.nullDevice

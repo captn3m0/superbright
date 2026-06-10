@@ -3,6 +3,105 @@ import Foundation
 import IOKit
 import MetalKit
 
+// MARK: - Incompatible app detection
+
+struct IncompatibleRunningApp: Equatable {
+    let displayName: String
+    let bundleIdentifier: String?
+}
+
+private struct IncompatibleAppSignature {
+    let displayName: String
+    let bundleIdentifiers: Set<String>
+    let normalizedNames: Set<String>
+}
+
+private let incompatibleAppSignatures: [IncompatibleAppSignature] = [
+    IncompatibleAppSignature(
+        displayName: "f.lux",
+        bundleIdentifiers: ["org.herf.Flux"],
+        normalizedNames: ["flux", "fluxapp"]
+    ),
+    IncompatibleAppSignature(
+        displayName: "MonitorControl",
+        bundleIdentifiers: ["me.guillaumeb.MonitorControl", "app.monitorcontrol.MonitorControl", "app.monitorcontrol.MonitorControlLite"],
+        normalizedNames: ["monitorcontrol"]
+    ),
+    IncompatibleAppSignature(
+        displayName: "BetterDisplay",
+        bundleIdentifiers: ["com.github.wulkano.BetterDisplay", "pro.betterdisplay.BetterDisplay"],
+        normalizedNames: ["betterdisplay", "betterdummy"]
+    ),
+    IncompatibleAppSignature(
+        displayName: "Lunar",
+        bundleIdentifiers: ["fyi.lunar.Lunar"],
+        normalizedNames: ["lunar"]
+    ),
+    IncompatibleAppSignature(
+        displayName: "Vivid",
+        bundleIdentifiers: ["com.getvivid.vivid", "com.getvivid.Vivid"],
+        normalizedNames: ["vivid"]
+    ),
+    IncompatibleAppSignature(
+        displayName: "DisplayBuddy",
+        bundleIdentifiers: ["com.sids.DisplayBuddy", "com.sids.displaybuddy-setapp"],
+        normalizedNames: ["displaybuddy"]
+    ),
+    IncompatibleAppSignature(
+        displayName: "Gamma Control",
+        bundleIdentifiers: ["ca.michelf.gamma-control"],
+        normalizedNames: ["gammacontrol"]
+    ),
+    IncompatibleAppSignature(
+        displayName: "QuickShade",
+        bundleIdentifiers: ["jp.questbeat.Shade"],
+        normalizedNames: ["quickshade"]
+    ),
+    IncompatibleAppSignature(
+        displayName: "Iris",
+        bundleIdentifiers: ["com.iristech.Iris", "com.iristech.IrisMini"],
+        normalizedNames: ["iris", "irismini"]
+    ),
+]
+
+private func normalizedApplicationName(_ name: String) -> String {
+    name.lowercased().filter { $0.isLetter || $0.isNumber }
+}
+
+private func normalizedApplicationCandidates(for app: NSRunningApplication) -> Set<String> {
+    Set([app.localizedName, app.bundleIdentifier,
+         app.bundleURL?.deletingPathExtension().lastPathComponent,
+         app.executableURL?.deletingPathExtension().lastPathComponent]
+        .compactMap { $0.map(normalizedApplicationName) })
+}
+
+@MainActor func runningIncompatibleApps() -> [IncompatibleRunningApp] {
+    let currentBundleIdentifier = Bundle.main.bundleIdentifier
+    var foundApps: [IncompatibleRunningApp] = []
+
+    for app in NSWorkspace.shared.runningApplications {
+        guard app.bundleIdentifier != currentBundleIdentifier else { continue }
+
+        let bundleIdentifier = app.bundleIdentifier
+        let normalizedBundleIdentifier = bundleIdentifier?.lowercased()
+        let normalizedCandidates = normalizedApplicationCandidates(for: app)
+
+        guard let signature = incompatibleAppSignatures.first(where: { sig in
+            sig.bundleIdentifiers.contains(where: { $0 == normalizedBundleIdentifier }) ||
+            normalizedCandidates.contains(where: { c in sig.normalizedNames.contains(where: { c.contains($0) }) })
+        }) else { continue }
+
+        if !foundApps.contains(where: { $0.displayName == signature.displayName }) {
+            foundApps.append(IncompatibleRunningApp(
+                displayName: signature.displayName,
+                bundleIdentifier: bundleIdentifier
+            ))
+        }
+    }
+
+    return foundApps.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+}
+
 // MARK: - Device gating
 
 let supportedDevices: Set<String> = [
@@ -30,20 +129,27 @@ extension NSScreen {
 }
 
 func getModelIdentifier() -> String? {
-    let service = IOServiceGetMatchingService(
-        kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+    let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
     defer { IOObjectRelease(service) }
-    guard
-        let modelData = IORegistryEntryCreateCFProperty(
-            service, "model" as CFString, kCFAllocatorDefault, 0
-        ).takeRetainedValue() as? Data
-    else { return nil }
-    return String(data: modelData, encoding: .utf8)?.trimmingCharacters(in: .controlCharacters)
+    guard let data = IORegistryEntryCreateCFProperty(service, "model" as CFString, kCFAllocatorDefault, 0)
+        .takeRetainedValue() as? Data else { return nil }
+    return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .controlCharacters)
 }
 
 func isDeviceSupported() -> Bool {
-    guard let device = getModelIdentifier() else { return false }
-    return supportedDevices.contains(device)
+    getModelIdentifier().map { supportedDevices.contains($0) } ?? false
+}
+
+func isClamshellClosed() -> Bool? {
+    let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+    guard service != 0 else { return nil }
+    defer { IOObjectRelease(service) }
+    let clamshellState = IORegistryEntryCreateCFProperty(
+        service, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0
+    )?.takeRetainedValue()
+    if let value = clamshellState as? Bool { return value }
+    if let number = clamshellState as? NSNumber { return number.boolValue }
+    return nil
 }
 
 func isBuiltInScreen(_ screen: NSScreen) -> Bool {
@@ -266,7 +372,7 @@ final class BrightnessService {
             name: NSWorkspace.didWakeNotification, object: nil)
 
         CGDisplayRestoreColorSyncSettings()
-        apply(screens: getXDRDisplays())
+        apply(screens: shouldDisableForClosedLid() ? [] : getXDRDisplays())
     }
 
     func stop() {
@@ -406,12 +512,16 @@ final class BrightnessService {
         }
     }
 
+    private func shouldDisableForClosedLid() -> Bool {
+        isClamshellClosed() ?? false
+    }
+
     private func scheduleDebouncedScreenUpdate() {
         screenUpdateDebounceTask?.cancel()
         screenUpdateDebounceTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, let self else { return }
-            self.apply(screens: getXDRDisplays())
+            self.apply(screens: shouldDisableForClosedLid() ? [] : getXDRDisplays())
         }
     }
 }
@@ -507,6 +617,14 @@ struct SuperbrightCLI {
 
         guard isDeviceSupported() || hasExternalXDR() else {
             FileHandle.standardError.write(Data("superbright: this Mac is not supported\n".utf8))
+            exit(1)
+        }
+
+        let incompatible = runningIncompatibleApps()
+        if !incompatible.isEmpty {
+            let names = incompatible.map { $0.displayName }.joined(separator: ", ")
+            FileHandle.standardError.write(
+                Data("superbright: incompatible app(s) detected: \(names)\nQuit them before running superbright.\n".utf8))
             exit(1)
         }
 

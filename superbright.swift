@@ -370,6 +370,9 @@ final class BrightnessService {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(handleWakeFromSleep),
             name: NSWorkspace.didWakeNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(handleWakeFromSleep),
+            name: NSWorkspace.screensDidWakeNotification, object: nil)
 
         CGDisplayRestoreColorSyncSettings()
         apply(screens: shouldDisableForClosedLid() ? [] : getXDRDisplays())
